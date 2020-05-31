@@ -1,0 +1,19 @@
+{
+    "one_time": false,
+    "buttons": [
+      [{
+        "action": {
+          "type": "text",
+          "label": "Управлять сервером"
+        },
+        "color": "primary"
+      }],
+      [{
+        "action": {
+          "type": "text",
+          "label": "Удалить сервер"
+        },
+        "color": "negative"
+      }]
+    ]
+  }
