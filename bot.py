@@ -1,7 +1,7 @@
 #VK MINECRAFT BOT#
 #  By: Avenger   #
-#   31.05.2020   #
-#  Version: 2.0  #
+#   01.06.2020   #
+#  Version: 2.1  #
 
 import vk_api #API #pip install vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType #LongPoll
@@ -13,6 +13,7 @@ from hashlib import sha256 #Хеширование
 from sqlite3 import connect #Для БД AuthMe
 from ftplib import FTP #Для скачивания БД AuthMe
 from threading import Thread #Для потоков
+from fuzzywuzzy.fuzz import ratio #Для сравнения строк
 
 #НАСТРОЙКИ
 token = "" #Главный токен
@@ -36,7 +37,7 @@ else:
     with open(LoggedUsersPath, "r") as rf:
         DataBase = load(rf)
 
-def have(self, m, i): #Имеет ли массив индекс
+def have(m, i): #Имеет ли массив индекс
     try:
         m[i]
         return True
@@ -59,7 +60,7 @@ def checkToken(token):
     return True
                                     
 
-def maybeInt(self, inr):
+def maybeInt(inr):
     try:
         int(inr)
         return True
@@ -81,6 +82,7 @@ class Main(Thread):
         Thread.__init__(self)
         self.requestAuth = {}
         self.deleteUsers = {}
+        self.controllUsers = {}
         self.vk = vk_api.VkApi(token = token) #Сессия VK
 
         try:
@@ -146,17 +148,29 @@ class Main(Thread):
                             self.requestAuth[aid][0] = 5
                             self.send_msg_without_keyboard(aid, "Успешно, введите RCON порт")
                         elif self.requestAuth[aid][0] == 5:
-                            self.requestAuth[aid][2]["RCON"]["PORT"] = txt
-                            self.requestAuth[aid][0] = 6
-                            self.send_msg_without_keyboard(aid, "Успешно, введите RCON пароль")
+                            if maybeInt(txt):
+                                self.requestAuth[aid][2]["RCON"]["PORT"] = int(txt)
+                                self.requestAuth[aid][0] = 6
+                                self.send_msg_without_keyboard(aid, "Успешно, введите RCON пароль")
+                            else:
+                                self.send_msg_without_keyboard(aid, "Ошибка, это не число")
+                                self.toMenu(aid)
+                                del self.requestAuth[aid]
+                                continue
                         elif self.requestAuth[aid][0] == 6:
                             self.requestAuth[aid][2]["RCON"]["PASSWORD"] = txt
                             self.requestAuth[aid][0] = 7
                             self.send_msg_without_keyboard(aid, "Успешно, введите MINECRAFT порт")
                         elif self.requestAuth[aid][0] == 7:
-                            self.requestAuth[aid][2]["MINECRAFT"]["PORT"] = txt
-                            self.requestAuth[aid][0] = 8
-                            self.send_msg_without_keyboard(aid, "Успешно, введите FTP (Корневая папка - папка с server.jar) пользователя (Нужно право на чтение файлов)")
+                            if maybeInt(txt):
+                                self.requestAuth[aid][2]["MINECRAFT"]["PORT"] = int(txt)
+                                self.requestAuth[aid][0] = 8
+                                self.send_msg_without_keyboard(aid, "Успешно, введите FTP (Корневая папка - папка с server.jar) пользователя (Нужно право на чтение файлов)")
+                            else:
+                                self.send_msg_without_keyboard(aid, "Ошибка, это не число")
+                                self.toMenu(aid)
+                                del self.requestAuth[aid]
+                                continue
                         elif self.requestAuth[aid][0] == 8:
                             self.requestAuth[aid][2]["FTP"]["USERNAME"] = txt
                             self.requestAuth[aid][0] = 9
@@ -173,6 +187,7 @@ class Main(Thread):
                                 dump(DataBase, f)
                             bots.bots.append(MineBot(self.requestAuth[aid][2]["TOKEN"], self.requestAuth[aid][2], self.requestAuth[aid][1]))
                             bots.bots[len(bots.bots) - 1].start()
+                            del self.requestAuth[aid]
                             self.toMenu(aid)
                     
                     if aid in self.deleteUsers:
@@ -195,9 +210,65 @@ class Main(Thread):
                                 self.toMenu(aid)
                                 del self.deleteUsers[aid]
                                 continue
-
                     
-                    if cmd in ["начать", "меню", "старт", "привет", "Start"]:
+                    if aid in self.controllUsers:
+                        if cmd == "отменить":
+                            self.send_msg_without_keyboard(aid, "Успешно, операция отменена")
+                            self.toMenu(aid)
+                            del self.controllUsers[aid]
+                            continue
+                        else:
+                            if self.controllUsers[aid][0] == 1:
+                                r = {"percent": 0, "index": 0}
+                                allowValue = ["токен", "ip", "привелегия", "портrcon", "парольrcon", "портminecraft", "пользовательftp", "парольftp", "файлftp"]
+                                for f in range(len(allowValue)):
+                                    if ratio(cmd, allowValue[f]) > r["percent"]:
+                                        r = {"percent": ratio(cmd, allowValue[f]), "index": f}
+                                self.send_msg_without_keyboard(aid, "Успешно, выбран параметр " + allowValue[r["index"]].upper() + ", введите значение")
+                                self.controllUsers[aid] = [2, r["index"]]
+                            elif self.controllUsers[aid][0] == 2:
+                                al = {6: "USERNAME", 7: "PASSWORD", 8: "DataBaseFile"}
+                                for f in DataBase:
+                                    if DataBase[f]["OWNER"] == aid:
+                                        nam = f
+                                if self.controllUsers[aid][1] == 3:
+                                    if maybeInt(txt):
+                                        DataBase[nam]["RCON"]["PORT"] = int(txt)
+                                        self.send_msg_without_keyboard(aid, "Успешно, RCON порт изменён на " + txt)
+                                        self.toMenu(aid)
+                                        del self.controllUsers[aid]
+                                        continue
+                                    else:
+                                        self.send_msg_without_keyboard(aid, "Ошибка, это не число")
+                                        self.toMenu(aid)
+                                        del self.controllUsers[aid]
+                                        continue
+                                elif self.controllUsers[aid][1] == 4:
+                                    DataBase[nam]["RCON"]["PASSWORD"] = txt
+                                    self.send_msg_without_keyboard(aid, "Успешно, RCON пароль изменён на " + txt)
+                                    self.toMenu(aid)
+                                    del self.controllUsers[aid]
+                                    continue
+                                elif self.controllUsers[aid][1] == 5:
+                                    if maybeInt(txt):
+                                        DataBase[nam]["MINECRAFT"]["PORT"] = int(txt)
+                                        self.send_msg_without_keyboard(aid, "Успешно, MINECRAFT порт изменён на " + txt)
+                                        self.toMenu(aid)
+                                        del self.controllUsers[aid]
+                                        continue
+                                    else:
+                                        self.send_msg_without_keyboard(aid, "Ошибка, это не число")
+                                        self.toMenu(aid)
+                                        del self.controllUsers[aid]
+                                        continue
+                                elif self.controllUsers[aid][1] in [6, 7, 8]:
+                                    DataBase[nam]["FTP"][al[self.controllUsers[aid][1]]] = txt
+                                    self.send_msg_without_keyboard(aid, "Успешно, FTP параметр изменён на " + txt)
+                                    self.toMenu(aid)
+                                    del self.controllUsers[aid]
+                                    continue
+
+                    if cmd in ["начать", "меню", "старт", "привет", "start"]:
                         self.toMenu(aid)
                     elif cmd == "зарегистрировать сервер" and not self.checkOwner(aid):
                         self.requestAuth[aid] = [1, "name", {
@@ -228,7 +299,30 @@ class Main(Thread):
                         self.deleteUsers[aid] = nam
                         self.send_msg_with_keyboard(aid, "Успешно, введите название сервера для подтверждения операции (" + nam + ")", keyboards["close"])
                     elif cmd == "управлять сервером" and self.checkOwner(aid):
-                        self.send_msg_without_keyboard(aid, "Извините, данная функция в разработке =(")
+                        self.controllUsers[aid] = [1, "valueToChange"]
+                        for f in DataBase:
+                            if DataBase[f]["OWNER"] == aid:
+                                nam = f
+                        Serv = DataBase[nam]
+                        self.send_msg_without_keyboard(aid, """
+Данные для чтения:
+    Название сервера: {}
+    Количество авторизованых людей: {}
+
+Данные которые можно изменить:
+    Токен: (Значение недоступно для просмотра)
+    IP: {}
+    Привелегия: {}
+    ПортRcon: {}
+    ПарольRcon: {}
+    ПортMinecraft: {}
+    ПользовательFTP: {}
+    ПарольFTP: {}
+    ФайлFTP: {}
+                        """.format(nam, len(Serv["authed"]), Serv["HOST"], Serv["ConsoleAllowDonate"], Serv["RCON"]["PORT"], Serv["RCON"]["PASSWORD"], Serv["MINECRAFT"]["PORT"], Serv["FTP"]["USERNAME"], Serv["FTP"]["PASSWORD"], Serv["FTP"]["DataBaseFile"]))
+                        self.send_msg_with_keyboard(aid, "Успешно, выберите параметр который хотите изменить", keyboards["close"])
+                    elif not aid in self.controllUsers and not aid in self.requestAuth and not aid in self.deleteUsers:
+                        self.send_msg_without_keyboard(aid, "Ошибка, команда не распознана, напишите \"меню\"")
                     self.vk.method("messages.markAsRead", {"peer_id": aid, "message_id": self.vk.method("messages.getHistory", {"user_id": aid, "count": 1})["items"][0]["id"]}) #Читаю сообщение
 
     def send_msg_without_keyboard(self, peer, message): #Отправить сообщение без клавиатуры
@@ -247,7 +341,7 @@ class MineBot(Thread):
 
         self.authUsers = {} #Пользователи которые авториуются
         self.enterUsers = {} #Пользователи которые вводят команду
-        self.changeUsers = {}
+        self.changeUsers = {} #Пользователи которые меняют пароль
 
         try:
             self.vk.auth() #Авторизуюсь
@@ -379,7 +473,7 @@ class MineBot(Thread):
                                 self.send_msg_with_keyboard(aid, "Ошибка, ваш старый пароль некорректен", keyboards["auth"])
                                 del self.changeUsers[aid]
 
-                    if cmd in ["начать", "меню", "старт", "привет", "Start"]:
+                    if cmd in ["начать", "меню", "старт", "привет", "start"]:
                         if aid in self.authed:
                             self.send_msg_with_keyboard(aid, "Главное меню", keyboards["auth"])
                         else:
@@ -393,6 +487,8 @@ class MineBot(Thread):
                     elif cmd == "сменить пароль" and aid in self.authed and not aid in self.enterUsers:
                         self.changeUsers[aid] = [1, "oldPass"]
                         self.send_msg_with_keyboard(aid, "Успешно, введите старый пароль", keyboards["close"])
+                    elif not aid in self.changeUsers and not aid in self.authUsers and not aid in self.enterUsers:
+                        self.send_msg_without_keyboard(aid, "Ошибка, команда не распознана, напишите \"меню\"")
                     self.vk.method("messages.markAsRead", {"peer_id": aid, "message_id": self.vk.method("messages.getHistory", {"user_id": aid, "count": 1})["items"][0]["id"]}) #Читаю сообщение
 
     def getDBFile(self, host, user, password): #Получаю по FTP БД AuthMe
