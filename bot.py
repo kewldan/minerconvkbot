@@ -1,19 +1,19 @@
 #VK MINECRAFT BOT#
-#  By: Avenger   #
-#   01.06.2020   #
-#  Version: 2.1  #
+#   By: Avenger  #
+#   02.06.2020   #
+#  Version: 2.2  #
 
 import vk_api #API #pip install vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType #LongPoll
 from random import randrange #Случайные числа
-from os.path import exists #Для работы с FileSystem
+import os #Для работы с FileSystem
 from json import load, dump #JSON
-from requests import post #Запросы к YCAPI #pip install requests
 from hashlib import sha256 #Хеширование
 from sqlite3 import connect #Для БД AuthMe
 from ftplib import FTP #Для скачивания БД AuthMe
 from threading import Thread #Для потоков
-from fuzzywuzzy.fuzz import ratio #Для сравнения строк
+from fuzzywuzzy.fuzz import ratio #Для сравнения строк #pip install fuzzywuzzy
+from mcrcon import MCRcon #Для RCON #pip install mcrcon
 
 #НАСТРОЙКИ
 token = "" #Главный токен
@@ -30,7 +30,7 @@ Keyboards = {
 }
 #/////////
 
-if not exists(LoggedUsersPath):
+if not os.path.exists(LoggedUsersPath):
     open(LoggedUsersPath, "w", encoding = "UTF-8").write("{}")
     DataBase = {}
 else:
@@ -58,7 +58,31 @@ def checkToken(token):
         else:
             return err.error["error_code"]
     return True
-                                    
+
+def getPlayerDonate(host, port, password, player, FTPs):#TODO: Проверка PEX
+    try:
+        ftp = FTP(host, FTPs["USERNAME"], FTPs["PASSWORD"])
+    except:
+        return -1
+    ftp.login(FTPs["USERNAME"], FTPs["PASSWORD"])
+
+    if "plugins" in ftp.nlst():
+        ftp.cwd("plugins")
+    else:
+        return -2
+    
+    if not "PermissionsEx" in ftp.nlst():
+        return -3
+    
+    ftp.quit()
+    mc = MCRcon(host, password, port)
+    mc.connect()
+    return mc.command("pex user " + player).split()[5]
+
+def rcon(host, port, password, cmd):
+    mc = MCRcon(host, password, port)
+    mc.connect()
+    return mc.command(cmd)
 
 def maybeInt(inr):
     try:
@@ -73,9 +97,10 @@ def checkPassword(linePass, checkPass): #Проверяю корректност
     return linePass == "$SHA$" + args[2] + "$" + sha256(g.encode("UTF-8")).hexdigest()
 
 for u in keyboards:
-    if not exists(keyboards[u]):
+    if not os.path.exists(keyboards[u]):
         print("FATAL ERROR: НЕ НАЙДЕНА КЛАВИАТУРА " + u)
         exit(1)
+
 
 class Main(Thread):
     def __init__(self, token):
@@ -177,10 +202,6 @@ class Main(Thread):
                             self.send_msg_without_keyboard(aid, "Успешно, введите FTP (Корневая папка - папка с server.jar) пароль от пользователя")
                         elif self.requestAuth[aid][0] == 9:
                             self.requestAuth[aid][2]["FTP"]["PASSWORD"] = txt
-                            self.requestAuth[aid][0] = 10
-                            self.send_msg_without_keyboard(aid, "Успешно, введите FTP (Корневая папка - папка с server.jar) название файла ./plugins/AuthMe/??????.db (По умолчанию это authme.db)")
-                        elif self.requestAuth[aid][0] == 10:
-                            self.requestAuth[aid][2]["FTP"]["DataBaseFile"] = txt
                             self.send_msg_without_keyboard(aid, "Успешно, ваш сервер зарегистрирован! Бот начнёт работать в ближайшее время")
                             DataBase[self.requestAuth[aid][1]] = self.requestAuth[aid][2]
                             with open(LoggedUsersPath, "w", encoding = "UTF-8") as f:
@@ -189,6 +210,7 @@ class Main(Thread):
                             bots.bots[len(bots.bots) - 1].start()
                             del self.requestAuth[aid]
                             self.toMenu(aid)
+                            continue
                     
                     if aid in self.deleteUsers:
                         if cmd == "отменить":
@@ -220,18 +242,30 @@ class Main(Thread):
                         else:
                             if self.controllUsers[aid][0] == 1:
                                 r = {"percent": 0, "index": 0}
-                                allowValue = ["токен", "ip", "привелегия", "портrcon", "парольrcon", "портminecraft", "пользовательftp", "парольftp", "файлftp"]
+                                allowValue = ["ip", "привелегия", "портrcon", "парольrcon", "портminecraft", "пользовательftp", "парольftp"]
                                 for f in range(len(allowValue)):
                                     if ratio(cmd, allowValue[f]) > r["percent"]:
                                         r = {"percent": ratio(cmd, allowValue[f]), "index": f}
                                 self.send_msg_without_keyboard(aid, "Успешно, выбран параметр " + allowValue[r["index"]].upper() + ", введите значение")
                                 self.controllUsers[aid] = [2, r["index"]]
                             elif self.controllUsers[aid][0] == 2:
-                                al = {6: "USERNAME", 7: "PASSWORD", 8: "DataBaseFile"}
+                                al = {5: "USERNAME", 6: "PASSWORD"}
                                 for f in DataBase:
                                     if DataBase[f]["OWNER"] == aid:
                                         nam = f
-                                if self.controllUsers[aid][1] == 3:
+                                if self.controllUsers[aid][1] == 0:
+                                    DataBase[nam]["HOST"] = txt
+                                    self.send_msg_without_keyboard(aid, "Успешно, IP пароль изменён на " + txt)
+                                    self.toMenu(aid)
+                                    del self.controllUsers[aid]
+                                    continue
+                                elif self.controllUsers[aid][1] == 1:
+                                    DataBase[nam]["ConsoleAllowDonate"] = txt
+                                    self.send_msg_without_keyboard(aid, "Успешно, привелегия для консоли изменена на " + txt)
+                                    self.toMenu(aid)
+                                    del self.controllUsers[aid]
+                                    continue
+                                elif self.controllUsers[aid][1] == 2:
                                     if maybeInt(txt):
                                         DataBase[nam]["RCON"]["PORT"] = int(txt)
                                         self.send_msg_without_keyboard(aid, "Успешно, RCON порт изменён на " + txt)
@@ -243,13 +277,13 @@ class Main(Thread):
                                         self.toMenu(aid)
                                         del self.controllUsers[aid]
                                         continue
-                                elif self.controllUsers[aid][1] == 4:
+                                elif self.controllUsers[aid][1] == 3:
                                     DataBase[nam]["RCON"]["PASSWORD"] = txt
                                     self.send_msg_without_keyboard(aid, "Успешно, RCON пароль изменён на " + txt)
                                     self.toMenu(aid)
                                     del self.controllUsers[aid]
                                     continue
-                                elif self.controllUsers[aid][1] == 5:
+                                elif self.controllUsers[aid][1] == 4:
                                     if maybeInt(txt):
                                         DataBase[nam]["MINECRAFT"]["PORT"] = int(txt)
                                         self.send_msg_without_keyboard(aid, "Успешно, MINECRAFT порт изменён на " + txt)
@@ -261,7 +295,7 @@ class Main(Thread):
                                         self.toMenu(aid)
                                         del self.controllUsers[aid]
                                         continue
-                                elif self.controllUsers[aid][1] in [6, 7, 8]:
+                                elif self.controllUsers[aid][1] in [5, 6]:
                                     DataBase[nam]["FTP"][al[self.controllUsers[aid][1]]] = txt
                                     self.send_msg_without_keyboard(aid, "Успешно, FTP параметр изменён на " + txt)
                                     self.toMenu(aid)
@@ -286,8 +320,7 @@ class Main(Thread):
                             },
                             "FTP": {
                                 "USERNAME": "user",
-                                "PASSWORD": "fpass",
-                                "DataBaseFile": "dbf"
+                                "PASSWORD": "fpass"
                             }
                         }]
                         self.send_msg_with_keyboard(aid, "Успешно, запрос обрабатывается, введите Название сервера", keyboards["close"])
@@ -310,7 +343,6 @@ class Main(Thread):
     Количество авторизованых людей: {}
 
 Данные которые можно изменить:
-    Токен: (Значение недоступно для просмотра)
     IP: {}
     Привелегия: {}
     ПортRcon: {}
@@ -318,8 +350,7 @@ class Main(Thread):
     ПортMinecraft: {}
     ПользовательFTP: {}
     ПарольFTP: {}
-    ФайлFTP: {}
-                        """.format(nam, len(Serv["authed"]), Serv["HOST"], Serv["ConsoleAllowDonate"], Serv["RCON"]["PORT"], Serv["RCON"]["PASSWORD"], Serv["MINECRAFT"]["PORT"], Serv["FTP"]["USERNAME"], Serv["FTP"]["PASSWORD"], Serv["FTP"]["DataBaseFile"]))
+                        """.format(nam, len(Serv["authed"]), Serv["HOST"], Serv["ConsoleAllowDonate"], Serv["RCON"]["PORT"], Serv["RCON"]["PASSWORD"], Serv["MINECRAFT"]["PORT"], Serv["FTP"]["USERNAME"], Serv["FTP"]["PASSWORD"]))
                         self.send_msg_with_keyboard(aid, "Успешно, выберите параметр который хотите изменить", keyboards["close"])
                     elif not aid in self.controllUsers and not aid in self.requestAuth and not aid in self.deleteUsers:
                         self.send_msg_without_keyboard(aid, "Ошибка, команда не распознана, напишите \"меню\"")
@@ -333,10 +364,10 @@ class Main(Thread):
 
 class MineBot(Thread):
     def __init__(self, token, settings, name):
-        Thread.__init__(self)
-        self.Server = settings
-        self.name = name
-        self.authed = self.Server["authed"]
+        Thread.__init__(self) #Отдельный поток
+        self.Server = settings #Настройки
+        self.name = name #Название сервера
+        self.authed = self.Server["authed"] #Авторизированые пользователи
         self.vk = vk_api.VkApi(token = token) #Сессия VK
 
         self.authUsers = {} #Пользователи которые авториуются
@@ -349,13 +380,13 @@ class MineBot(Thread):
             pass
     
     def run(self):
-        print("Mine bot " + self.name + " is active")
+        print("Mine bot " + self.name + " is active\n")
         longpoll = VkLongPoll(self.vk) #Сессия LongPoll
 
         for event in longpoll.listen(): #Для каждого события
             if event.type == VkEventType.MESSAGE_NEW: #Если событие - сообщение
                 if event.to_me: #Если сообщение мне
-                    aid = str(event.user_id)
+                    aid = str(event.user_id) #ID
                     cmd = str(event.text).lower()
 
                     if aid in self.authUsers:
@@ -364,10 +395,10 @@ class MineBot(Thread):
                             del self.authUsers[aid]
                         elif self.authUsers[aid][0] == 1:
                             self.authUsers[aid] = [2, event.text]
-                            self.send_msg_without_keyboard(aid, "Успешно, введите пароль")
+                            self.send_msg_without_keyboard(aid, "Успешно, введите пароль (Обработка занимает много времени)")
                         elif self.authUsers[aid][0] == 2:
-                            if self.getDBFile(self.Server["HOST"], self.Server["FTP"]["USERNAME"], self.Server["FTP"]["PASSWORD"]) == -1:
-                                self.send_msg_with_keyboard(aid, "Ошибка, ошибка настроек сервера", keyboards["Nauth"])
+                            if self.getDBFile(self.Server["HOST"], self.Server["FTP"]["USERNAME"], self.Server["FTP"]["PASSWORD"], aid) == -1:
+                                self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен не правильно", keyboards["Nauth"])
                                 del self.authUsers[aid]
                                 continue
                             conn = connect("DB" + self.name + ".db")
@@ -394,55 +425,68 @@ class MineBot(Thread):
                                         free = True
                                 if free:
                                     continue
-                                rs = post("https://ylousrp.ru/API/getPlayerDonate.php", data = {"ip": self.Server["HOST"], "port": self.Server["RCON"]["PORT"], "password": self.Server["RCON"]["PASSWORD"], "player": self.authUsers[aid][1]})
-                                if not rs.status_code == 200:
-                                    self.send_msg_with_keyboard(aid, "Ошибка, YCAPI не доступен", keyboards["Nauth"])
-                                    del self.authUsers[aid]
-                                    continue
-                                else:
-                                    if rs.text == "Connecting error":
-                                        self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["Nauth"])
-                                        del self.authUsers[aid]
-                                        continue
-                                    else:
-                                         if not rs.text == self.Server["ConsoleAllowDonate"]:
-                                            self.send_msg_with_keyboard(aid, "Ошибка, пользователь с этим ником не имеет привелегии " + self.Server["ConsoleAllowDonate"], keyboards["Nauth"])
-                                            del self.authUsers[aid]
-                                            continue
                                 self.authed[aid] = [self.authUsers[aid][1], event.text]
+                                self.Server["authed"][aid] = [self.authUsers[aid][1], event.text]
+                                DataBase[self.name] = self.Server
                                 with open(LoggedUsersPath, "w") as wf:
-                                    dump(self.authed, wf)
+                                    dump(DataBase, wf)
                                 self.send_msg_with_keyboard(aid, "Успешно, вы авторизованы", keyboards["auth"])
                                 del self.authUsers[aid]
+                                continue
                             else:
                                 self.send_msg_with_keyboard(aid, "Ошибка, логин или пароль некорректны", keyboards["Nauth"])
                                 del self.authUsers[aid]
                                 continue
 
                     if aid in self.enterUsers:
+                        rs = getPlayerDonate(self.Server["HOST"], self.Server["RCON"]["PORT"], self.Server["RCON"]["PASSWORD"], self.authed[aid][0], self.Server["FTP"])
+                        if rs == -1:
+                            self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен неправильно", keyboards["auth"])
+                            self.sendError("[https://vk.com/id{}] Ошибка подключения к FTP")
+                            del self.enterUsers[aid]
+                            continue
+                        elif rs == -2:
+                            self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен неправильно", keyboards["auth"])
+                            self.sendError("[https://vk.com/id{}] FTP папка plugins не доступна")
+                            del self.enterUsers[aid]
+                            continue
+                        elif rs == -3:
+                            self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен неправильно", keyboards["auth"])
+                            self.sendError("[https://vk.com/id{}] FTP папка plugins/PermissionsEx не доступна")
+                            del self.enterUsers[aid]
+                            continue
+                        elif rs == "CONNECT ERR":
+                            self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["auth"])
+                            del self.enterUsers[aid]
+                            continue
+                        elif rs == "FAIL":
+                            self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен не правильно", keyboards["auth"])
+                            self.sendError("[https://vk.com/id{}] Ошибка подключения к RCON")
+                            del self.enterUsers[aid]
+                        else:
+                            if not rs == self.Server["ConsoleAllowDonate"]:
+                                self.send_msg_with_keyboard(aid, "Ошибка, пользователь с этим ником не имеет привелегии " + self.Server["ConsoleAllowDonate"], keyboards["auth"])
+                                del self.enterUsers[aid]
+                                continue
                         if cmd == "отменить":
                             self.send_msg_with_keyboard(aid, "Главное меню", keyboards["auth"])
                             del self.enterUsers[aid]
                         elif self.enterUsers[aid][0] == 1:
-                            rs = post("https://ylousrp.ru/API/rcon.php", data = {"ip": self.Server["HOST"], "port": self.Server["RCON"]["PORT"], "password": self.Server["RCON"]["PASSWORD"], "cmd": event.text})
-                            if not rs.status_code == 200:
-                                print(rs.status_code)
-                                self.send_msg_with_keyboard(aid, "Ошибка, YCAPI не доступен", keyboards["auth"])
+                            rs = rcon(self.Server["HOST"], self.Server["RCON"]["PORT"], self.Server["RCON"]["PASSWORD"], event.text)
+                            if rs == "CONNECT ERR":
+                                self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["auth"])
                                 del self.enterUsers[aid]
-                            else:
-                                if rs.text == "Connecting error":
-                                    self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["auth"])
-                                    del self.enterUsers[aid]
-                                elif rs.text == "REQUEST INVALID":
-                                    print("ERROR:", rs.text)
-                                    self.send_msg_with_keyboard(aid, "Ошибка, внутриняя ошибка скрипта бота", keyboards["auth"])
-                                    del self.enterUsers[aid]
-                                else: 
-                                    try:
-                                        self.send_msg_with_keyboard(aid, rs.text, keyboards["auth"])
-                                    except:
-                                        pass
-                                    del self.enterUsers[aid]
+                            elif rs == "FAIL":
+                                self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен не правильно", keyboards["auth"])
+                                self.sendError("[https://vk.com/id{}] Ошибка подключения к RCON")
+                                del self.enterUsers[aid]
+                            else: 
+                                try:
+                                    self.send_msg_with_keyboard(aid, rs, keyboards["auth"])
+                                    continue
+                                except:
+                                    pass
+                                del self.enterUsers[aid]
 
                     if aid in self.changeUsers:
                         if cmd == "отменить":
@@ -453,25 +497,24 @@ class MineBot(Thread):
                             self.send_msg_without_keyboard(aid, "Успешно, введите новый пароль")
                         elif self.changeUsers[aid][0] == 2:
                             if self.authed[aid][1] == self.changeUsers[aid][1]:
-                                rs = post("https://ylousrp.ru/API/rcon.php", data = {"ip": self.Server["HOST"], "port": self.Server["RCON"]["PORT"], "password": self.Server["RCON"]["PASSWORD"], "cmd": "authme password " + self.authed[aid][0] + " " + event.text})
-                                if not rs.status_code == 200:
-                                    print(rs.status_code)
-                                    self.send_msg_with_keyboard(aid, "Ошибка, YCAPI не доступен", keyboards["auth"])
+                                rs = rcon(self.Server["HOST"], self.Server["RCON"]["PORT"], self.Server["RCON"]["PASSWORD"], "authme password " + self.authed[aid][0] + " " + event.text)
+                                if rs == "CONNECT ERR":
+                                    self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["auth"])
                                     del self.changeUsers[aid]
-                                else:
-                                    if rs.text == "Connecting error":
-                                        self.send_msg_with_keyboard(aid, "Ошибка, сервер Minecraft отключен", keyboards["auth"])
-                                        del self.changeUsers[aid]
-                                    elif rs.text == "REQUEST INVALID":
-                                        print("ERROR:", rs.text)
-                                        self.send_msg_with_keyboard(aid, "Ошибка, внутриняя ошибка скрипта бота", keyboards["auth"])
-                                        del self.changeUsers[aid]
-                                    else: 
-                                        self.send_msg_with_keyboard(aid, "Успешно, пароль изменён", keyboards["auth"])
-                                        del self.changeUsers[aid]
+                                    continue
+                                elif rs == "FAIL":
+                                    self.send_msg_with_keyboard(aid, "Ошибка, сервер настроен не правильно", keyboards["auth"])
+                                    self.sendError("[https://vk.com/id{}] Ошибка подключения к RCON")
+                                    del self.changeUsers[aid]
+                                    continue
+                                else: 
+                                    self.send_msg_with_keyboard(aid, "Успешно, пароль изменён", keyboards["auth"])
+                                    del self.changeUsers[aid]
+                                    continue
                             else:
                                 self.send_msg_with_keyboard(aid, "Ошибка, ваш старый пароль некорректен", keyboards["auth"])
                                 del self.changeUsers[aid]
+                                continue
 
                     if cmd in ["начать", "меню", "старт", "привет", "start"]:
                         if aid in self.authed:
@@ -487,31 +530,48 @@ class MineBot(Thread):
                     elif cmd == "сменить пароль" and aid in self.authed and not aid in self.enterUsers:
                         self.changeUsers[aid] = [1, "oldPass"]
                         self.send_msg_with_keyboard(aid, "Успешно, введите старый пароль", keyboards["close"])
-                    elif not aid in self.changeUsers and not aid in self.authUsers and not aid in self.enterUsers:
+                    elif not aid in self.changeUsers and not aid in self.authUsers and not aid in self.enterUsers and not cmd == "отменить":
                         self.send_msg_without_keyboard(aid, "Ошибка, команда не распознана, напишите \"меню\"")
                     self.vk.method("messages.markAsRead", {"peer_id": aid, "message_id": self.vk.method("messages.getHistory", {"user_id": aid, "count": 1})["items"][0]["id"]}) #Читаю сообщение
 
-    def getDBFile(self, host, user, password): #Получаю по FTP БД AuthMe
+    def getDBFile(self, host, user, password, aid): #Получаю по FTP БД AuthMe
         try:
             ftp = FTP(host, user, password)
         except:
+            self.sendError("[https://vk.com/id{}] Сервер FTP недоступен".format(aid))
             return -1
         ftp.login(user, password)
-        ftp.cwd("plugins")
-        ftp.cwd("AuthMe")
-        if post("https://ylousrp.ru/API/monitoring.php", {"ip": self.Server["MINECRAFT"]["HOST"], "port": self.Server["MINECRAFT"]["PORT"]}).json()["online"]:
-            post("https://ylousrp.ru/API/rcon.php", data = {"ip": self.Server["HOST"], "port": self.Server["RCON"]["PORT"], "password": self.Server["RCON"]["PASSWORD"], "cmd": "plugman disable AuthMe"})
+        if "plugins" in ftp.nlst():
+            ftp.cwd("plugins")
+        else:
+            self.sendError("[https://vk.com/id{}] FTP папка plugins не доступна".format(aid))
+            return -1
+        if "PlugMan" in ftp.nlst():
+            rcon(self.Server["HOST"], self.Server["RCON"]["PORT"], self.Server["RCON"]["PASSWORD"], "plugman disable AuthMe")
+        else:
+            self.sendError("[https://vk.com/id{}] FTP папка plugins/PlugMan не доступна".format(aid))
+            return -1
+        if "AuthMe" in ftp.nlst():
+            ftp.cwd("AuthMe")
+        else:
+            self.sendError("[https://vk.com/id{}] FTP папка plugins/AuthMe не доступна".format(aid))
+            return -1
+        if not "authme.db" in ftp.nlst():
+            self.sendError("[https://vk.com/id{}] FTP файл plugins/AuthMe/authme.db не доступен".format(aid))
+            return -1
         with open("DB" + self.name + ".db", "wb") as f:
-            ftp.retrbinary("RETR " + self.Server["FTP"]["DataBaseFile"], f.write)
+            ftp.retrbinary("RETR authme.db", f.write)
         ftp.quit()
-        if post("https://ylousrp.ru/API/monitoring.php", {"ip": self.Server["MINECRAFT"]["HOST"], "port": self.Server["MINECRAFT"]["PORT"]}).json()["online"]:
-            post("https://ylousrp.ru/API/rcon.php", data = {"ip": self.Server["HOST"], "port": self.Server["RCON"]["PORT"], "password": self.Server["RCON"]["PASSWORD"], "cmd": "plugman enable AuthMe"})
+        rcon(self.Server["HOST"], self.Server["RCON"]["PORT"], self.Server["RCON"]["PASSWORD"], "plugman enable AuthMe")
 
     def send_msg_without_keyboard(self, peer, message): #Отправить сообщение без клавиатуры
         self.vk.method("messages.send", {"peer_id": peer, "message": message, "random_id": randrange(0, 184467440737095516165, 1)})
 
     def send_msg_with_keyboard(self, peer, message, keyboardFilePath): #Отправить сообщение с клавиатурой
         self.vk.method("messages.send", {"peer_id": peer, "message": message, "keyboard": open(keyboardFilePath, "r", encoding="UTF-8").read(), "random_id": randrange(0, 184467440737095516165, 1)})
+
+    def sendError(self, msg):
+        bots.mainBot.send_msg_without_keyboard(self.Server["OWNER"], "[ОШИБКА БОТА] " + msg)
 
 
 
@@ -521,6 +581,6 @@ class Bots:
         self.mainBot = Main(mainToken)
         for b in DataBase:
             self.bots.append(MineBot(DataBase[b]["TOKEN"], DataBase[b], b))
-            self.bots[len(self.bots) - 1].start()
+            self.bots[-1].start()
         self.mainBot.start()
 bots = Bots(token)
